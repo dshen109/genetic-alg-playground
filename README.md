@@ -1,2 +1,2 @@
-# deap-playground
-playing around with DEAP
+# genetic-alg-playground
+playing around with genetic algorithms
