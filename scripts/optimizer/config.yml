@@ -1,0 +1,24 @@
+---
+# Example yaml configuration for optimizer run
+parameters:
+  mate:
+    function: cxTwoPoint
+    kwargs: null
+  mutate:
+    function: mutGaussian
+    kwargs:
+      mu: 1
+      sigma: 1
+      indpb: 0.1
+  select:
+    function: selTournament
+    kwargs:
+      tournsize: 3
+  generations: 40
+  n_individuals: 100
+  cxpb: 0.01
+  mutpb: 0.2
+bounds:  # dictionary of bounds for each parameter
+  null
+grid_search:  # stuff for initial grid search
+  null
