@@ -3,7 +3,7 @@ import random
 
 import numpy
 
-from deap import creator, base, tools
+from deap import algorithms, creator, base, tools
 
 
 # TODO: do we need to set random seed?
@@ -70,14 +70,38 @@ class RCOptimizer:
             'population', tools.initRepeat, list,
             getattr(self.toolbox, self.individual_name)
         )
+        self.toolbox.register('mutate', self.mutate)
+        self.toolbox.register('mate', self.mate)
+        self.toolbox.register('select', self.select)
 
     def learn(self):
         """Execute learning."""
-        pass
+        population = self.toolbox.population(n=100)
+        for gen in range(self.generations):
+            offspring = algorithms.varAnd(population, self.toolbox,
+                                          cxpb=0.01, mutpb=0.2)
+            population = self.toolbox.select(offspring, k=len(population))
+            self.top10 = tools.selBest(population, k=10)
 
     @property
     def individual_name(self):
         return f"individual_{self.identifier}"
+
+    @property
+    def mutate(self):
+        # TODO: Get mutation function from config
+        pass
+
+    @property
+    def mate(self):
+        # TODO: Get mate function from config
+        pass
+
+    @property
+    def select_individual(self):
+        """ Function that selects the best individual(s) of each generation. """
+        # TODO: Get select function from config
+        pass
 
     def validate_bounds(self):
         for v in self.bounds.values():
