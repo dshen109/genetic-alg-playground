@@ -7,13 +7,17 @@ import numpy
 from deap import algorithms, creator, base, tools
 
 
+def log(*args, **kwargs):
+    print(*args, **kwargs)
+
+
 # TODO: do we need to set random seed?
 # Set seed for consistency of running things
 numpy.random.seed(0)
 random.seed(0)
 
 # First weight is for error (minimize error), second weight is for validity
-creator.create('FitnessDual', base.Fitness, weights=(-1.0, 1.0))
+creator.create('FitnessMin', base.Fitness, weights=(-1.0)
 
 
 class RCOptimizer:
@@ -22,7 +26,7 @@ class RCOptimizer:
     """
     def __init__(self, config, C_matrix, D_matrix,
                  training_data, validation_data, test_data,
-                 names, bounds=None, identifier=0):
+                 names, identifier=0):
         """Optimize a matrix of RC values.
 
         Assumes the governing equations are of the form `xdot = A x + B u`
@@ -51,13 +55,19 @@ class RCOptimizer:
         self.bounds = self._bounds_from_config(self.config)
         self.names = names
         self.identifier = identifier
+        self.best_from_grid_search = None
         self.toolbox = base.Toolbox()
-        self.register()
 
     def register(self):
         """Register functions with the DEAP toolbox."""
+        if not self.best_from_grid_search:
+            log("Seeding individual generator with a best guess.")
+            rc_vals_best = self.best_from_guessing()
+        else:
+            log("Seeding individual generator with grid search best guess.")
+
         self.toolbox.register(
-            'individual', Scenario, rc_vals=self.rc_vals,
+            'individual', Scenario, rc_vals=rc_vals_best,
             C=self.C_matrix, D=self.D_matrix, data=self.training_data,
             rc_bounds=self.bounds)
         self.toolbox.register(
@@ -65,10 +75,11 @@ class RCOptimizer:
         )
         self.toolbox.register('mutate', self.mutate)
         self.toolbox.register('mate', self.mate)
-        self.toolbox.register('select', self.select)
+        self.toolbox.register('select', self.select_best_individual)
 
     def learn(self):
         """Execute learning."""
+        self.register()
         population = self.toolbox.population(n=100)
         for _ in range(self.generations):
             offspring = algorithms.varAnd(
@@ -78,23 +89,32 @@ class RCOptimizer:
             population = self.toolbox.select(offspring, k=len(population))
             self.top10 = tools.selBest(population, k=10)
 
+    def grid_search(self):
+        """
+        Execute a parameter sweep over the configuration bounds.
+
+        Assigns the best parameter comination to `self.best_from_grid_search`
+        """
+        # TODO: Implement.
+        return Scenario({}, None, None, None, None)
+
     @property
     def individual_name(self):
-        # TODO: Delete this maybe, it's unused.
+        # TODO: Delete this maybe, since it's unused.
         return f"individual_{self.identifier}"
 
     @property
     def mutate(self):
-        # TODO: Get mutation function from config and wrap with value bounds
+        # TODO: Get mutation function from config
         pass
 
     @property
     def mate(self):
-        # TODO: Get mate function from config and wrap with value bounds.
+        # TODO: Get mate function from config
         pass
 
     @property
-    def select_individual(self):
+    def select_best_individual(self):
         """ Function that selects the best individual(s) of each generation. """
         # TODO: Get select function from config
         pass
@@ -136,7 +156,7 @@ class Scenario:
         self.data = data
         self.rc_bounds = rc_bounds
         # Maximizing fitness
-        self._fitness = creator.FitnessDual()
+        self._fitness = creator.FitnessMin()
 
     def predict(self):
         """Simulate the output variable based on the state matrices."""
@@ -149,22 +169,9 @@ class Scenario:
         # TODO: Make this actually output the error.
         return abs(numpy.sum(self.predict()) - 20)
 
-    def score(self):
-        """Return the fitness of the individual.
-
-        Not named as *fitness* because we need to reserve that name for DEAP.
-
-        TODO: Return tuple of score and validity.
-        """
-        if self.rc_valid:
-            validity = 1
-        else:
-            validity = 0
-        return self.error(), validity
-
     @property
     def fitness(self):
-        self._fitness.values = self.score()
+        self._fitness.values = self.error(),
         return self._fitness
 
     @property
