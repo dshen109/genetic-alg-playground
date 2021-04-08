@@ -19,6 +19,8 @@ parameters:
   cxpb: 0.01
   mutpb: 0.2
 bounds:  # dictionary of bounds for each parameter
-  null
+  R_1_2:
+    mean: 1
+    pct_range: 0.02
 grid_search:  # stuff for initial grid search
   null

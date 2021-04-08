@@ -19,7 +19,7 @@ class RCOptimizer:
     """
     Optimize a RC circuit
     """
-    def __init__(self, C_matrix, D_matrix,
+    def __init__(self, rc_config, C_matrix, D_matrix,
                  training_data, validation_data, test_data,
                  names, bounds=None, n_individuals=100, generations=50,
                  identifier=0):
@@ -41,6 +41,7 @@ class RCOptimizer:
         :param float timestep: Simulation timestep
         :param int identifier: ID for this optimization
         """
+        self.rc_config = rc_config
         self.C_matrix = C_matrix
         self.D_matrix = D_matrix
         self.training_data = training_data
@@ -89,12 +90,12 @@ class RCOptimizer:
 
     @property
     def mutate(self):
-        # TODO: Get mutation function from config
+        # TODO: Get mutation function from config and wrap with value bounds
         pass
 
     @property
     def mate(self):
-        # TODO: Get mate function from config
+        # TODO: Get mate function from config and wrap with value bounds.
         pass
 
     @property
@@ -103,19 +104,26 @@ class RCOptimizer:
         # TODO: Get select function from config
         pass
 
-    def validate_bounds(self):
-        for v in self.bounds.values():
-            if v[0] > v[1]:
-                raise ValueError(
-                    "First element of bound should be smaller than the second"
-                    "element."
-                )
-
     @classmethod
     def from_yaml(self, filepath):
         """Instantiate from a yaml"""
         # TODO: Implement
         raise NotImplementedError
+
+    @staticmethod
+    def _bounds_from_config(config):
+        """ Return dictionary of tuples representing min/max bounds. """
+        if 'bounds' not in config:
+            return {}
+        bounds = {}
+        for k, v in config['bounds'].items():
+            mean = v['mean']
+            pct_range = v['pct_range']
+            rng = pct_range * mean
+            lower = mean - rng / 2
+            upper = mean + rng / 2
+            bounds[k] = (lower, upper)
+        return bounds
 
 
 class Scenario:
@@ -221,6 +229,21 @@ def deap_mut_wrapper(func):
     return wrapped
 
 
+@deap_mut_wrapper
+def mutGaussianScaled(individual, mu, sigma_scale, indp):
+    """
+    Apply a Gaussian mutation, with the standard deviation for each attribute
+    fixed as a percentage of the attribute's magnitude.
+
+    :param float sigma_scale: scaling factor for standard deviation as a percent
+        of magnitude
+    """
+    # TODO: implement.
+    pass
+
+
+# Note: some of these mutations / crossovers change list size, so we will want
+# to exclude them.
 cxBlend = deap_cx_wrapper(tools.cxBlend)
 cxESBlend = deap_cx_wrapper(tools.cxESBlend)
 cxESTwoPoint = deap_cx_wrapper(tools.cxESTwoPoint)
