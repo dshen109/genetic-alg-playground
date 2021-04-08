@@ -51,9 +51,6 @@ class RCOptimizer:
         self.bounds = self._bounds_from_config(self.config)
         self.names = names
         self.identifier = identifier
-        self.rc_vals = {
-            'foo': 1, 'bar': 2
-        }
         self.toolbox = base.Toolbox()
         self.register()
 
