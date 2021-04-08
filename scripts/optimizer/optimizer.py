@@ -1,5 +1,6 @@
 from functools import wraps
 import random
+from types import SimpleNamespace
 
 import numpy
 
@@ -19,10 +20,9 @@ class RCOptimizer:
     """
     Optimize a RC circuit
     """
-    def __init__(self, rc_config, C_matrix, D_matrix,
+    def __init__(self, config, C_matrix, D_matrix,
                  training_data, validation_data, test_data,
-                 names, bounds=None, n_individuals=100, generations=50,
-                 identifier=0):
+                 names, bounds=None, identifier=0):
         """Optimize a matrix of RC values.
 
         Assumes the governing equations are of the form `xdot = A x + B u`
@@ -41,20 +41,16 @@ class RCOptimizer:
         :param float timestep: Simulation timestep
         :param int identifier: ID for this optimization
         """
-        self.rc_config = rc_config
+        self.config = config
+        self.parameters = SimpleNamespace(self.config['parameters'])
         self.C_matrix = C_matrix
         self.D_matrix = D_matrix
         self.training_data = training_data
         self.validation_data = validation_data
         self.test_data = test_data
-        self.bounds = bounds or {}
+        self.bounds = self._bounds_from_config(self.config)
         self.names = names
-        self.n_individuals = n_individuals
-        self.generations = generations
         self.identifier = identifier
-
-        self.validate_bounds()
-
         self.rc_vals = {
             'foo': 1, 'bar': 2
         }
@@ -64,12 +60,11 @@ class RCOptimizer:
     def register(self):
         """Register functions with the DEAP toolbox."""
         self.toolbox.register(
-            self.individual_name, Scenario, rc_vals=self.rc_vals,
+            'individual', Scenario, rc_vals=self.rc_vals,
             C=self.C_matrix, D=self.D_matrix, data=self.training_data,
             rc_bounds=self.bounds)
         self.toolbox.register(
-            'population', tools.initRepeat, list,
-            getattr(self.toolbox, self.individual_name)
+            'population', tools.initRepeat, list, self.toolbox.individual
         )
         self.toolbox.register('mutate', self.mutate)
         self.toolbox.register('mate', self.mate)
@@ -78,14 +73,17 @@ class RCOptimizer:
     def learn(self):
         """Execute learning."""
         population = self.toolbox.population(n=100)
-        for gen in range(self.generations):
-            offspring = algorithms.varAnd(population, self.toolbox,
-                                          cxpb=0.01, mutpb=0.2)
+        for _ in range(self.generations):
+            offspring = algorithms.varAnd(
+                population, self.toolbox, cxpb=self.parameters.cxpb,
+                mutpb=self.parameters.mutpb
+            )
             population = self.toolbox.select(offspring, k=len(population))
             self.top10 = tools.selBest(population, k=10)
 
     @property
     def individual_name(self):
+        # TODO: Delete this maybe, it's unused.
         return f"individual_{self.identifier}"
 
     @property
@@ -214,6 +212,13 @@ def deap_cx_wrapper(func):
         )
         ind1.rc_vals = {k: v for k, v in zip(keys, seq1)}
         ind2.rc_vals = {k: v for k, v in zip(keys, seq2)}
+        if ind1.rc_bounds:
+            for k, (low, high) in ind1.rc_bounds.items():
+                ind1.rc_vals[k] = max(min(high, ind1.rc_vals[k]), low)
+        if ind2.rc_bounds:
+            for k, (low, high) in ind2.rc_bounds.items():
+                ind2.rc_vals[k] = max(min(high, ind2.rc_vals[k]), low)
+
         return ind1, ind2
     return wrapped
 
@@ -225,6 +230,10 @@ def deap_mut_wrapper(func):
         keys = sorted(individual.rc_vals.keys())
         seq, = func([individual.rc_vals[k] for k in keys], *args, **kwargs)
         individual.rc_vals = {k: v for k, v in zip(keys, seq)}
+        if individual.rc_bounds:
+            for k, (low, high) in individual.rc_bounds.items():
+                individual.rc_vals[k] = max(
+                    min(high, individual.rc_vals[k]), low)
         return individual,
     return wrapped
 
@@ -238,8 +247,8 @@ def mutGaussianScaled(individual, mu, sigma_scale, indp):
     :param float sigma_scale: scaling factor for standard deviation as a percent
         of magnitude
     """
-    # TODO: implement.
-    pass
+    sigmas = [v * sigma_scale for v in individual]
+    return tools.mutGaussian(individual, mu, sigmas, indp)
 
 
 # Note: some of these mutations / crossovers change list size, so we will want
