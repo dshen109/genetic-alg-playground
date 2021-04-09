@@ -13,6 +13,7 @@ parameters:
   select:
     function: selTournament
     kwargs:
+      k: 10
       tournsize: 3
   generations: 40
   n_individuals: 100
@@ -20,7 +21,7 @@ parameters:
   mutpb: 0.2
 bounds:  # dictionary of bounds for each parameter
   R_1_2:
-    mean: 1
+    mean: 1  # Center of search range
     pct_range: 0.02
 grid_search:  # stuff for initial grid search
   null
