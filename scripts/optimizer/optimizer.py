@@ -17,7 +17,7 @@ numpy.random.seed(0)
 random.seed(0)
 
 # First weight is for error (minimize error), second weight is for validity
-creator.create('FitnessMin', base.Fitness, weights=(-1.0)
+creator.create('FitnessMin', base.Fitness, weights=(-1.0))
 
 
 class RCOptimizer:
@@ -46,7 +46,7 @@ class RCOptimizer:
         :param int identifier: ID for this optimization
         """
         self.config = config
-        self.parameters = SimpleNamespace(self.config['parameters'])
+        self.parameters = SimpleNamespace(**self.config['parameters'])
         self.C_matrix = C_matrix
         self.D_matrix = D_matrix
         self.training_data = training_data
@@ -58,16 +58,19 @@ class RCOptimizer:
         self.best_from_grid_search = None
         self.toolbox = base.Toolbox()
 
+        self.individual_cls = Scenario
+
     def register(self):
         """Register functions with the DEAP toolbox."""
         if not self.best_from_grid_search:
             log("Seeding individual generator with a best guess.")
-            rc_vals_best = self.best_from_guessing()
+            rc_vals_best = self.best_from_guessing().rc_vals
         else:
             log("Seeding individual generator with grid search best guess.")
+            rc_vals_best = self.best_from_grid_search.rc_vals
 
         self.toolbox.register(
-            'individual', Scenario, rc_vals=rc_vals_best,
+            'individual', self.individual_cls, rc_vals=rc_vals_best,
             C=self.C_matrix, D=self.D_matrix, data=self.training_data,
             rc_bounds=self.bounds)
         self.toolbox.register(
@@ -75,7 +78,7 @@ class RCOptimizer:
         )
         self.toolbox.register('mutate', self.mutate)
         self.toolbox.register('mate', self.mate)
-        self.toolbox.register('select', self.select_best_individual)
+        self.toolbox.register('select', self.select_individuals)
 
     def learn(self):
         """Execute learning."""
@@ -89,14 +92,32 @@ class RCOptimizer:
             population = self.toolbox.select(offspring, k=len(population))
             self.top10 = tools.selBest(population, k=10)
 
+    def best_from_guessing(self):
+        """
+        Return a guess for the best variable values.
+
+        The best guess is either the mean specified in configuration or 1 if the
+        mean has not been defined.
+
+        :return dict:
+        """
+        return {
+            k: v.get('mean') or 1 for k, v in self.config['bounds'].items()
+        }
+
     def grid_search(self):
         """
-        Execute a parameter sweep over the configuration bounds.
+        Execute a parameter sweep over the configuration bounds and return the
+        best variable combination.
 
         Assigns the best parameter comination to `self.best_from_grid_search`
+
+        :return dict:
         """
-        # TODO: Implement.
-        return Scenario({}, None, None, None, None)
+        # TODO: implement
+        self.best_from_grid_search = self.best_from_guessing()
+        return self.best_from_guessing()
+
 
     @property
     def individual_name(self):
@@ -105,19 +126,47 @@ class RCOptimizer:
 
     @property
     def mutate(self):
-        # TODO: Get mutation function from config
-        pass
+        try:
+            func_name = self.parameters.mutate['function']
+        except AttributeError:
+            raise AttributeError(
+                "Parameters config does not define `mutate` action.")
+        except KeyError:
+            raise KeyError("Mutate config missing function to call.")
+        func = mutation_functions.get(func_name)
+        if not func:
+            raise ValueError(f"No mutation function named {func_name} found.")
+        return lambda: func(**self.parameters.mutate.get('kwargs', {}))
 
     @property
     def mate(self):
-        # TODO: Get mate function from config
-        pass
+        try:
+            func_name = self.parameters.mate['function']
+        except AttributeError:
+            raise AttributeError(
+                "Parameters config does not define `mate` action.")
+        except KeyError:
+            raise KeyError("Mate config missing function to call")
+        func = crossover_functions.get(func_name)
+        if not func:
+            raise ValueError(f"No crossover function named {func_name} found.")
+        return lambda: func(**self.parameters.mate.get('kwargs', {}))
 
     @property
-    def select_best_individual(self):
+    def select_individuals(self):
         """ Function that selects the best individual(s) of each generation. """
-        # TODO: Get select function from config
-        pass
+        try:
+            func_name = self.parameters.select['function']
+        except AttributeError:
+            raise AttributeError(
+                "Parameters config does not define `select` action.")
+        except KeyError:
+            raise KeyError("Mate config missing function to call")
+        func = getattr(tools, func_name, None)
+        if not func:
+            raise ValueError(f"No selection function named {func_name} found.")
+        return lambda: func(**self.parameters.mate.get('kwargs', {}))
+
 
     @classmethod
     def from_yaml(self, filepath):
@@ -132,6 +181,9 @@ class RCOptimizer:
             return {}
         bounds = {}
         for k, v in config['bounds'].items():
+            if v is None or 'pct_range' not in v:
+                bounds[k] = (-numpy.inf, numpy.inf)
+                continue
             mean = v['mean']
             pct_range = v['pct_range']
             rng = pct_range * mean
@@ -257,24 +309,29 @@ def mutGaussianScaled(individual, mu, sigma_scale, indp):
 
 # Note: some of these mutations / crossovers change list size, so we will want
 # to exclude them.
-cxBlend = deap_cx_wrapper(tools.cxBlend)
-cxESBlend = deap_cx_wrapper(tools.cxESBlend)
-cxESTwoPoint = deap_cx_wrapper(tools.cxESTwoPoint)
-cxESTwoPoints = deap_cx_wrapper(tools.cxESTwoPoints)
-cxMessyOnePoint = deap_cx_wrapper(tools.cxMessyOnePoint)
-cxOnePoint = deap_cx_wrapper(tools.cxOnePoint)
-cxOrdered = deap_cx_wrapper(tools.cxOrdered)
-cxPartialyMatched = deap_cx_wrapper(tools.cxPartialyMatched)
-cxSimulatedBinary = deap_cx_wrapper(tools.cxSimulatedBinary)
-cxSimulatedBinaryBounded = deap_cx_wrapper(tools.cxSimulatedBinaryBounded)
-cxTwoPoint = deap_cx_wrapper(tools.cxTwoPoint)
-cxTwoPoints = deap_cx_wrapper(tools.cxTwoPoints)
-cxUniform = deap_cx_wrapper(tools.cxUniform)
-cxUniformPartialyMatched = deap_cx_wrapper(tools.cxUniformPartialyMatched)
+crossover_functions = {
+    "cxBlend": deap_cx_wrapper(tools.cxBlend),
+    "cxESBlend": deap_cx_wrapper(tools.cxESBlend),
+    "cxESTwoPoint": deap_cx_wrapper(tools.cxESTwoPoint),
+    "cxESTwoPoints": deap_cx_wrapper(tools.cxESTwoPoints),
+    "cxMessyOnePoint": deap_cx_wrapper(tools.cxMessyOnePoint),
+    "cxOnePoint": deap_cx_wrapper(tools.cxOnePoint),
+    "cxOrdered": deap_cx_wrapper(tools.cxOrdered),
+    "cxPartialyMatched": deap_cx_wrapper(tools.cxPartialyMatched),
+    "cxSimulatedBinary": deap_cx_wrapper(tools.cxSimulatedBinary),
+    "cxSimulatedBinaryBounded": deap_cx_wrapper(tools.cxSimulatedBinaryBounded),
+    "cxTwoPoint": deap_cx_wrapper(tools.cxTwoPoint),
+    "cxTwoPoints": deap_cx_wrapper(tools.cxTwoPoints),
+    "cxUniform": deap_cx_wrapper(tools.cxUniform),
+    "cxUniformPartialyMatched": deap_cx_wrapper(tools.cxUniformPartialyMatched)
+}
 
-mutESLogNormal = deap_mut_wrapper(tools.mutESLogNormal)
-mutFlipBit = deap_mut_wrapper(tools.mutFlipBit)
-mutGaussian = deap_mut_wrapper(tools.mutGaussian)
-mutPolynomialBounded = deap_mut_wrapper(tools.mutPolynomialBounded)
-mutShuffleIndexes = deap_mut_wrapper(tools.mutShuffleIndexes)
-mutUniformInt = deap_mut_wrapper(tools.mutUniformInt)
+mutation_functions = {
+    "mutESLogNormal": deap_mut_wrapper(tools.mutESLogNormal),
+    "mutFlipBit": deap_mut_wrapper(tools.mutFlipBit),
+    "mutGaussian": deap_mut_wrapper(tools.mutGaussian),
+    "mutPolynomialBounded": deap_mut_wrapper(tools.mutPolynomialBounded),
+    "mutShuffleIndexes": deap_mut_wrapper(tools.mutShuffleIndexes),
+    "mutUniformInt": deap_mut_wrapper(tools.mutUniformInt)
+}
+
