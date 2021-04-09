@@ -1,7 +1,10 @@
 from inspect import unwrap
 import random
 
+import deap
+
 from . import optimizer
+import mock
 from unittest import TestCase
 
 
@@ -17,6 +20,25 @@ class TestOptimizer(TestCase):
         )
         self.assertEqual(optimizer.RCOptimizer._bounds_from_config({}), {})
 
+    @mock.patch.object(deap.tools, 'selectselect', mock.MagicMock())
+    @mock.patch.dict(optimizer.crossover_functions,
+                     {'matemate': mock.MagicMock()})
+    @mock.patch.dict(optimizer.mutation_functions,
+                     {'mutatemutate': mock.MagicMock()})
+    def test_registration(self, _, __, select_func):
+        # Test that our mutation / crossover / selection functions register and
+        # get called with appropriate kwargs
+        config = {
+            'parameters': {
+                'mate': {'function': 'matemate'}},
+                'mutate': {
+                    'function': 'mutatemutate', 'kwargs': {'foo': 'bar'}},
+                'select': {
+                    'function': {'selectselect': {'kwargs': {}}}
+                }
+        }
+
+
 
 class TestDeapWrappers(TestCase):
     def setUp(self):
@@ -31,7 +53,7 @@ class TestDeapWrappers(TestCase):
         ind2 = Ind()
         ind1.rc_vals = {'a': 1, 'b': 2, 'c': 3}
         ind2.rc_vals = {'a': 4, 'b': 5, 'c': 6}
-        ind1, ind2 = optimizer.cxTwoPoint(ind1, ind2)
+        ind1, ind2 = optimizer.crossover_functions['cxTwoPoint'](ind1, ind2)
         self.assertEqual(ind1.rc_vals, {'a': 1, 'b': 2, 'c': 6})
         self.assertEqual(ind2.rc_vals, {'a': 4, 'b': 5, 'c': 3})
 
