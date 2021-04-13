@@ -13,7 +13,6 @@ parameters:
   select:
     function: selTournament
     kwargs:
-      k: 10
       tournsize: 3
   generations: 40
   n_individuals: 100
