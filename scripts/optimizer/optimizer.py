@@ -1,9 +1,14 @@
 from functools import wraps
 import random
+from types import SimpleNamespace
 
 import numpy
 
 from deap import algorithms, creator, base, tools
+
+
+def log(*args, **kwargs):
+    print(*args, **kwargs)
 
 
 # TODO: do we need to set random seed?
@@ -12,17 +17,16 @@ numpy.random.seed(0)
 random.seed(0)
 
 # First weight is for error (minimize error), second weight is for validity
-creator.create('FitnessDual', base.Fitness, weights=(-1.0, 1.0))
+creator.create('FitnessMin', base.Fitness, weights=(-1.0)
 
 
 class RCOptimizer:
     """
     Optimize a RC circuit
     """
-    def __init__(self, C_matrix, D_matrix,
+    def __init__(self, config, C_matrix, D_matrix,
                  training_data, validation_data, test_data,
-                 names, bounds=None, n_individuals=100, generations=50,
-                 identifier=0):
+                 names, identifier=0):
         """Optimize a matrix of RC values.
 
         Assumes the governing equations are of the form `xdot = A x + B u`
@@ -41,50 +45,62 @@ class RCOptimizer:
         :param float timestep: Simulation timestep
         :param int identifier: ID for this optimization
         """
+        self.config = config
+        self.parameters = SimpleNamespace(self.config['parameters'])
         self.C_matrix = C_matrix
         self.D_matrix = D_matrix
         self.training_data = training_data
         self.validation_data = validation_data
         self.test_data = test_data
-        self.bounds = bounds or {}
+        self.bounds = self._bounds_from_config(self.config)
         self.names = names
-        self.n_individuals = n_individuals
-        self.generations = generations
         self.identifier = identifier
-
-        self.validate_bounds()
-
-        self.rc_vals = {
-            'foo': 1, 'bar': 2
-        }
+        self.best_from_grid_search = None
         self.toolbox = base.Toolbox()
-        self.register()
 
     def register(self):
         """Register functions with the DEAP toolbox."""
+        if not self.best_from_grid_search:
+            log("Seeding individual generator with a best guess.")
+            rc_vals_best = self.best_from_guessing()
+        else:
+            log("Seeding individual generator with grid search best guess.")
+
         self.toolbox.register(
-            self.individual_name, Scenario, rc_vals=self.rc_vals,
+            'individual', Scenario, rc_vals=rc_vals_best,
             C=self.C_matrix, D=self.D_matrix, data=self.training_data,
             rc_bounds=self.bounds)
         self.toolbox.register(
-            'population', tools.initRepeat, list,
-            getattr(self.toolbox, self.individual_name)
+            'population', tools.initRepeat, list, self.toolbox.individual
         )
         self.toolbox.register('mutate', self.mutate)
         self.toolbox.register('mate', self.mate)
-        self.toolbox.register('select', self.select)
+        self.toolbox.register('select', self.select_best_individual)
 
     def learn(self):
         """Execute learning."""
+        self.register()
         population = self.toolbox.population(n=100)
-        for gen in range(self.generations):
-            offspring = algorithms.varAnd(population, self.toolbox,
-                                          cxpb=0.01, mutpb=0.2)
+        for _ in range(self.generations):
+            offspring = algorithms.varAnd(
+                population, self.toolbox, cxpb=self.parameters.cxpb,
+                mutpb=self.parameters.mutpb
+            )
             population = self.toolbox.select(offspring, k=len(population))
             self.top10 = tools.selBest(population, k=10)
 
+    def grid_search(self):
+        """
+        Execute a parameter sweep over the configuration bounds.
+
+        Assigns the best parameter comination to `self.best_from_grid_search`
+        """
+        # TODO: Implement.
+        return Scenario({}, None, None, None, None)
+
     @property
     def individual_name(self):
+        # TODO: Delete this maybe, since it's unused.
         return f"individual_{self.identifier}"
 
     @property
@@ -98,24 +114,31 @@ class RCOptimizer:
         pass
 
     @property
-    def select_individual(self):
+    def select_best_individual(self):
         """ Function that selects the best individual(s) of each generation. """
         # TODO: Get select function from config
         pass
-
-    def validate_bounds(self):
-        for v in self.bounds.values():
-            if v[0] > v[1]:
-                raise ValueError(
-                    "First element of bound should be smaller than the second"
-                    "element."
-                )
 
     @classmethod
     def from_yaml(self, filepath):
         """Instantiate from a yaml"""
         # TODO: Implement
         raise NotImplementedError
+
+    @staticmethod
+    def _bounds_from_config(config):
+        """ Return dictionary of tuples representing min/max bounds. """
+        if 'bounds' not in config:
+            return {}
+        bounds = {}
+        for k, v in config['bounds'].items():
+            mean = v['mean']
+            pct_range = v['pct_range']
+            rng = pct_range * mean
+            lower = mean - rng / 2
+            upper = mean + rng / 2
+            bounds[k] = (lower, upper)
+        return bounds
 
 
 class Scenario:
@@ -133,7 +156,7 @@ class Scenario:
         self.data = data
         self.rc_bounds = rc_bounds
         # Maximizing fitness
-        self._fitness = creator.FitnessDual()
+        self._fitness = creator.FitnessMin()
 
     def predict(self):
         """Simulate the output variable based on the state matrices."""
@@ -146,22 +169,9 @@ class Scenario:
         # TODO: Make this actually output the error.
         return abs(numpy.sum(self.predict()) - 20)
 
-    def score(self):
-        """Return the fitness of the individual.
-
-        Not named as *fitness* because we need to reserve that name for DEAP.
-
-        TODO: Return tuple of score and validity.
-        """
-        if self.rc_valid:
-            validity = 1
-        else:
-            validity = 0
-        return self.error(), validity
-
     @property
     def fitness(self):
-        self._fitness.values = self.score()
+        self._fitness.values = self.error(),
         return self._fitness
 
     @property
@@ -206,6 +216,13 @@ def deap_cx_wrapper(func):
         )
         ind1.rc_vals = {k: v for k, v in zip(keys, seq1)}
         ind2.rc_vals = {k: v for k, v in zip(keys, seq2)}
+        if ind1.rc_bounds:
+            for k, (low, high) in ind1.rc_bounds.items():
+                ind1.rc_vals[k] = max(min(high, ind1.rc_vals[k]), low)
+        if ind2.rc_bounds:
+            for k, (low, high) in ind2.rc_bounds.items():
+                ind2.rc_vals[k] = max(min(high, ind2.rc_vals[k]), low)
+
         return ind1, ind2
     return wrapped
 
@@ -217,10 +234,29 @@ def deap_mut_wrapper(func):
         keys = sorted(individual.rc_vals.keys())
         seq, = func([individual.rc_vals[k] for k in keys], *args, **kwargs)
         individual.rc_vals = {k: v for k, v in zip(keys, seq)}
+        if individual.rc_bounds:
+            for k, (low, high) in individual.rc_bounds.items():
+                individual.rc_vals[k] = max(
+                    min(high, individual.rc_vals[k]), low)
         return individual,
     return wrapped
 
 
+@deap_mut_wrapper
+def mutGaussianScaled(individual, mu, sigma_scale, indp):
+    """
+    Apply a Gaussian mutation, with the standard deviation for each attribute
+    fixed as a percentage of the attribute's magnitude.
+
+    :param float sigma_scale: scaling factor for standard deviation as a percent
+        of magnitude
+    """
+    sigmas = [v * sigma_scale for v in individual]
+    return tools.mutGaussian(individual, mu, sigmas, indp)
+
+
+# Note: some of these mutations / crossovers change list size, so we will want
+# to exclude them.
 cxBlend = deap_cx_wrapper(tools.cxBlend)
 cxESBlend = deap_cx_wrapper(tools.cxESBlend)
 cxESTwoPoint = deap_cx_wrapper(tools.cxESTwoPoint)
