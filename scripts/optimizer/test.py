@@ -39,7 +39,6 @@ class TestOptimizer(TestCase):
         }
 
 
-
 class TestDeapWrappers(TestCase):
     def setUp(self):
         random.seed(0)

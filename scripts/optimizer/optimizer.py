@@ -11,7 +11,7 @@ def log(*args, **kwargs):
     print(*args, **kwargs)
 
 
-# TODO: do we need to set random seed?
+# TODO: do we need to set random seed form configuration?
 # Set seed for consistency of running things
 numpy.random.seed(0)
 random.seed(0)
